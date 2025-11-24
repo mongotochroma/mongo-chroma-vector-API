@@ -1,0 +1,13 @@
+
+fastapi
+uvicorn[standard]
+
+pydantic
+python-dotenv
+
+pymongo
+
+chromadb
+
+# Optional – ONLY for /ask-test
+google-genai

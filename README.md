@@ -1,0 +1,211 @@
+# Mongo → Chroma Vector Sync API
+
+A lightweight vectorization backend that syncs documents from **MongoDB** into **ChromaDB** in near real time. Designed as a foundational service for building Retrieval-Augmented systems, data indexing engines, or semantic search pipelines.
+
+Gemini-based RAG is included **only as an optional test endpoint**.
+
+---
+
+## 🔧 Features
+
+* **MongoDB → ChromaDB automated sync** (via polling worker)
+* **FastAPI Vector API**
+
+  * `POST /ingest` – index a document
+  * `POST /search` – semantic vector search
+  * `POST /delete` – remove a document by ID
+* **Optional Test Endpoint**
+
+  * `POST /ask-test` – Gemini-backed RAG for debugging retrieval quality
+* Clean modular structure
+* Fully local (Chroma embedded mode)
+
+---
+
+## 📂 Project Structure
+
+```
+mongo-chroma-vector-api/
+│
+├── backend/
+│   ├── app.py                # FastAPI application
+│   ├── config.py             # Env configuration
+│   ├── vector_store.py       # Chroma wrapper
+│   ├── api_models.py         # Request/Response schemas
+│   ├── gemini_test.py        # Optional RAG test
+│
+├── worker/
+│   ├── mongo_stream_worker.py  # Polling worker for Mongo
+│
+├── requirements.txt
+├── .env.example
+└── README.md
+```
+
+---
+
+## 🛠️ Installation
+
+### 1️⃣ Clone the Project
+
+```bash
+git clone <your-repo-url>
+cd mongo-chroma-vector-api
+```
+
+### 2️⃣ Create & Activate Virtual Environment
+
+```bash
+python -m venv .venv
+source .venv/bin/activate      # Windows: .venv\Scripts\activate
+```
+
+### 3️⃣ Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 4️⃣ Configure Environment
+
+Copy `.env.example` → `.env`:
+
+```bash
+cp .env.example .env
+```
+
+Fill values such as:
+
+```
+MONGO_URI=mongodb://localhost:27017
+MONGO_DB=realtime_demo
+MONGO_COLLECTION=articles
+
+CHROMA_DIR=./chroma_store
+CHROMA_COLLECTION=realtime_demo
+
+# Optional Gemini for test endpoint
+GEMINI_API_KEY=your_key_here
+GEMINI_MODEL=gemini-2.0-flash
+GEMINI_EMBED_MODEL=text-embedding-004
+```
+
+---
+
+## 🚀 Running the System
+
+### 1️⃣ Start the FastAPI Server
+
+```bash
+uvicorn backend.app:app --reload --port 8000
+```
+
+Visit docs at:
+
+```
+http://localhost:8000/docs
+```
+
+### 2️⃣ Start Mongo Sync Worker (Polling Mode)
+
+From project root:
+
+```bash
+python -m worker.mongo_stream_worker
+```
+
+You should see:
+
+```
+Starting polling worker (every 5s)…
+```
+
+---
+
+## 🧪 Testing the Pipeline
+
+### ✔ Insert Data into MongoDB
+
+Create a test file or run in Python shell:
+
+```python
+from pymongo import MongoClient
+from datetime import datetime
+
+client = MongoClient("mongodb://localhost:27017")
+db = client["realtime_demo"]
+coll = db["articles"]
+
+coll.insert_one({
+    "title": "Diabetic Retinopathy Detection",
+    "body": "We use a custom CNN trained on ODIR-5K for DR classification.",
+    "tags": ["DR", "CNN", "medical"],
+    "created_at": datetime.utcnow()
+})
+```
+
+Worker output should show:
+
+```
+[2025-...] Synced Mongo _id=<id> to Chroma
+```
+
+---
+
+## 🔍 Testing Vector Search
+
+Send a query:
+
+```bash
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{"query":"cnn diabetic retinopathy","top_k":3}'
+```
+
+You should get your newly indexed document back.
+
+---
+
+## ❌ Delete a Document
+
+```bash
+curl -X POST http://localhost:8000/delete \
+  -H "Content-Type: application/json" \
+  -d '{"mongo_id":"<id_from_mongo>"}'
+```
+
+---
+
+## 🤖 (Optional) Gemini RAG Test Endpoint
+
+Enable in `.env` by adding your Gemini API key.
+
+Test:
+
+```bash
+curl -X POST http://localhost:8000/ask-test \
+  -H "Content-Type: application/json" \
+  -d '{"query":"how do we detect DR?","top_k":3}'
+```
+
+This checks retrieval + Gemini reasoning.
+
+---
+
+## 🧼 Cleaning Chroma Storage
+
+To reset database:
+
+```bash
+rm -rf chroma_store
+```
+
+---
+
+## 📌 Notes
+
+* This design keeps **vector API production-focused**, and Gemini used **only for debugging**.
+* Worker uses **polling**, not change streams, so **replica set is NOT required**.
+* You can later upgrade the worker to real change streams once replica set support is available.
+
+---
