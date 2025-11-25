@@ -9,14 +9,26 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from pymongo import MongoClient
 
-from .api_models import IngestPayload, SearchRequest, DeletePayload
-from .vector_store import upsert_document, query_documents, delete_document, collection
+from .api_models import (
+    IngestPayload,
+    BatchIngestPayload,
+    SearchRequest,
+    DeletePayload,
+)
+from .vector_store import (
+    upsert_document,
+    upsert_documents,
+    query_documents,
+    delete_document,
+    collection,
+)
 from .config import (
     API_TOKEN,
     ALLOWED_CORS_ORIGINS,
     RATE_LIMIT_PER_MIN,
     MONGO_URI,
     MONGO_DB,
+    MAX_DOC_CHARS,
 )
 
 app = FastAPI(
@@ -111,6 +123,15 @@ def build_text_from_payload(p: IngestPayload) -> str:
     return f"Title: {p.title}\nBody: {p.body}\nTags: {tags_str}".strip()
 
 
+def validate_payload_size(title: str, body: str):
+    total_len = len(title) + len(body)
+    if total_len > MAX_DOC_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Document too large ({total_len} chars). Max allowed: {MAX_DOC_CHARS}",
+        )
+
+
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
@@ -150,6 +171,7 @@ async def readyz():
 
 @app.post("/ingest")
 async def ingest_document(payload: IngestPayload):
+    validate_payload_size(payload.title, payload.body)
     text = build_text_from_payload(payload)
 
     # Chroma metadata must be scalar-valued → convert list → string
@@ -210,3 +232,26 @@ async def delete(req: DeletePayload):
 @app.get("/metrics")
 async def metrics():
     return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
+@app.post("/ingest-batch")
+async def ingest_batch(payload: BatchIngestPayload):
+    if not payload.items:
+        return {"status": "skipped", "ingested": 0}
+
+    ids: List[str] = []
+    docs: List[str] = []
+    metas: List[Dict[str, Any]] = []
+
+    for item in payload.items:
+        validate_payload_size(item.title, item.body)
+        ids.append(item.mongo_id)
+        docs.append(build_text_from_payload(item))
+        tags_value = ", ".join(item.tags) if item.tags else None
+        meta = {"source": "mongo", "title": item.title}
+        if tags_value is not None:
+            meta["tags"] = tags_value
+        metas.append(meta)
+
+    upsert_documents(ids, docs, metas)
+    return {"status": "ingested", "ingested": len(ids)}

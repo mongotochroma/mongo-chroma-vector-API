@@ -53,8 +53,18 @@ MONGO_COLLECTION = os.getenv("MONGO_COLLECTION")
 # Chroma
 CHROMA_DIR = os.getenv("CHROMA_DIR")
 CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION")
+CHROMA_HNSW_SPACE = os.getenv("CHROMA_HNSW_SPACE", "cosine")
+CHROMA_HNSW_M = int(os.getenv("CHROMA_HNSW_M", "32"))
+CHROMA_HNSW_CONSTRUCTION_EF = int(os.getenv("CHROMA_HNSW_CONSTRUCTION_EF", "200"))
+CHROMA_HNSW_SEARCH_EF = int(os.getenv("CHROMA_HNSW_SEARCH_EF", "50"))
 
 # Optional Gemini (test only)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
 GEMINI_EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")
+
+# Request payload limits
+MAX_DOC_CHARS = int(os.getenv("MAX_DOC_CHARS", "12000"))
+
+# Worker batching
+WORKER_BATCH_SIZE = int(os.getenv("WORKER_BATCH_SIZE", "50"))

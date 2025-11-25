@@ -84,6 +84,16 @@ MONGO_COLLECTION=articles
 
 CHROMA_DIR=./chroma_store
 CHROMA_COLLECTION=realtime_demo
+CHROMA_HNSW_SPACE=cosine
+CHROMA_HNSW_M=32
+CHROMA_HNSW_CONSTRUCTION_EF=200
+CHROMA_HNSW_SEARCH_EF=50
+
+# Payload limits
+MAX_DOC_CHARS=12000
+
+# Worker batching/metrics
+WORKER_BATCH_SIZE=50
 
 # Optional Gemini for test endpoint
 GEMINI_API_KEY=your_key_here
@@ -101,6 +111,7 @@ For multiple environments, set `APP_ENV` (e.g., `production`, `staging`) and opt
 - `WORKER_CHECKPOINT_FILE` (persists last processed Mongo `_id` so restarts resume)
 - `USE_CHANGE_STREAM` (set `true` to use Mongo change streams; requires a replica set)
 - `WORKER_METRICS_PORT` (default `9001`) for Prometheus `/metrics` served by the worker
+- `WORKER_BATCH_SIZE` (default `50`) for batch ingest when catching up
 
 When `USE_CHANGE_STREAM=true`, the worker listens for `insert/replace/update` events via Mongo change streams instead of polling. For deletes, call the API’s `/delete` endpoint separately.
 

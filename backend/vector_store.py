@@ -3,7 +3,14 @@ from typing import Dict, Any, List
 import chromadb
 from chromadb.config import Settings
 
-from .config import CHROMA_DIR, CHROMA_COLLECTION
+from .config import (
+    CHROMA_DIR,
+    CHROMA_COLLECTION,
+    CHROMA_HNSW_SPACE,
+    CHROMA_HNSW_M,
+    CHROMA_HNSW_CONSTRUCTION_EF,
+    CHROMA_HNSW_SEARCH_EF,
+)
 
 
 # Embedded Chroma instance
@@ -14,7 +21,12 @@ client = chromadb.PersistentClient(
 
 collection = client.get_or_create_collection(
     name=CHROMA_COLLECTION,
-    metadata={"hnsw:space": "cosine"},
+    metadata={
+        "hnsw:space": CHROMA_HNSW_SPACE,
+        "hnsw:construction_ef": CHROMA_HNSW_CONSTRUCTION_EF,
+        "hnsw:M": CHROMA_HNSW_M,
+        "hnsw:search_ef": CHROMA_HNSW_SEARCH_EF,
+    },
 )
 
 
@@ -37,6 +49,22 @@ def upsert_document(
     if embedding is not None:
         kwargs["embeddings"] = [embedding]
 
+    collection.upsert(**kwargs)
+
+
+def upsert_documents(
+    doc_ids: List[str],
+    documents: List[str],
+    metadatas: List[Dict[str, Any]],
+    embeddings: List[List[float]] | None = None,
+) -> None:
+    kwargs: Dict[str, Any] = {
+        "ids": doc_ids,
+        "documents": documents,
+        "metadatas": metadatas,
+    }
+    if embeddings is not None:
+        kwargs["embeddings"] = embeddings
     collection.upsert(**kwargs)
 
 

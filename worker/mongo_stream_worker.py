@@ -22,6 +22,7 @@ from backend.config import (
     WORKER_MAX_RETRIES,
     USE_CHANGE_STREAM,
     WORKER_METRICS_PORT,
+    WORKER_BATCH_SIZE,
 )
 
 # Metrics
@@ -63,6 +64,32 @@ def _post_with_retry(payload: dict) -> bool:
     return False
 
 
+def _post_batch_with_retry(payloads: list[dict]) -> bool:
+    """
+    Batch send to /ingest-batch with retries.
+    """
+    url = f"{API_BASE}/ingest-batch"
+    for attempt in range(WORKER_MAX_RETRIES):
+        try:
+            r = requests.post(url, json={"items": payloads}, timeout=20, headers=_headers())
+            r.raise_for_status()
+            return True
+        except Exception as e:
+            WORKER_RETRIES.inc()
+            sleep_for = WORKER_BACKOFF_BASE_SEC * (2**attempt) * (1 + random.random())
+            _log(
+                "ingest_batch_retry",
+                attempt=attempt + 1,
+                max_attempts=WORKER_MAX_RETRIES,
+                error=str(e),
+                sleep_for=round(sleep_for, 2),
+                batch_size=len(payloads),
+            )
+            time.sleep(sleep_for)
+    _log("ingest_batch_failed", batch_size=len(payloads))
+    return False
+
+
 def _load_checkpoint() -> Optional[ObjectId]:
     path = Path(WORKER_CHECKPOINT_FILE)
     if not path.exists():
@@ -80,12 +107,7 @@ def _save_checkpoint(obj_id: ObjectId) -> None:
 
 
 def _process_doc(doc) -> bool:
-    payload = {
-        "mongo_id": str(doc["_id"]),
-        "title": doc.get("title", ""),
-        "body": doc.get("body", ""),
-        "tags": doc.get("tags", []),
-    }
+    payload = _to_payload(doc)
     ok = _post_with_retry(payload)
     if ok:
         _log("synced", mongo_id=payload["mongo_id"])
@@ -97,6 +119,15 @@ def _process_doc(doc) -> bool:
     else:
         WORKER_PROCESSED.labels(status="error").inc()
     return ok
+
+
+def _to_payload(doc) -> dict:
+    return {
+        "mongo_id": str(doc["_id"]),
+        "title": doc.get("title", ""),
+        "body": doc.get("body", ""),
+        "tags": doc.get("tags", []),
+    }
 
 
 def run_polling_worker():
@@ -119,10 +150,20 @@ def run_polling_worker():
         query = {"_id": {"$gt": last_seen_id}} if last_seen_id else {}
         docs = list(coll.find(query).sort("_id", 1))
 
-        for doc in docs:
-            if _process_doc(doc):
-                last_seen_id = doc["_id"]
-                _save_checkpoint(last_seen_id)
+        if docs:
+            for i in range(0, len(docs), WORKER_BATCH_SIZE):
+                batch = docs[i : i + WORKER_BATCH_SIZE]
+                payloads = [_to_payload(doc) for doc in batch]
+                if _post_batch_with_retry(payloads):
+                    WORKER_PROCESSED.labels(status="success").inc(len(batch))
+                    last_seen_id = batch[-1]["_id"]
+                    _save_checkpoint(last_seen_id)
+                    try:
+                        WORKER_LAST_ID.set(batch[-1]["_id"].generation_time.timestamp())
+                    except Exception:
+                        pass
+                else:
+                    WORKER_PROCESSED.labels(status="error").inc(len(batch))
 
         time.sleep(POLL_INTERVAL_SEC)
 
