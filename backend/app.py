@@ -3,11 +3,12 @@ import time
 import uuid
 from pathlib import Path
 from collections import deque, defaultdict
-from typing import Deque, Dict, List, Optional
+from typing import Any, Deque, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from pymongo import MongoClient
 
@@ -84,38 +85,71 @@ def log_json(message: str, **kwargs):
 async def auth_and_rate_limit(request: Request, call_next):
     client_ip = request.client.host if request.client else "unknown"
     request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+    path = request.url.path
 
     start = time.time()
 
-    # Rate limiting
-    now = time.time()
-    timestamps = request_log[client_ip]
-    while timestamps and now - timestamps[0] > RATE_WINDOW_SEC:
-        timestamps.popleft()
-    if len(timestamps) >= RATE_LIMIT_PER_MIN:
-        raise HTTPException(status_code=429, detail="Too many requests")
-    timestamps.append(now)
+    # Paths that should not require auth or rate limiting
+    open_paths = (
+        "/healthz",
+        "/readyz",
+        "/metrics",
+        "/favicon.ico",
+        "/",
+    )
+    skip_auth = (
+        path in open_paths
+        or path.startswith("/docs")
+        or path.startswith("/openapi")
+        or path.startswith("/ui")
+    )
 
-    # Token auth (Bearer or raw token)
-    if API_TOKEN:
-        auth_header = request.headers.get("authorization", "")
-        token = auth_header.replace("Bearer ", "").strip() if auth_header else ""
-        if token != API_TOKEN:
-            raise HTTPException(status_code=401, detail="Unauthorized")
+    try:
+        if not skip_auth:
+            # Rate limiting
+            now = time.time()
+            timestamps = request_log[client_ip]
+            while timestamps and now - timestamps[0] > RATE_WINDOW_SEC:
+                timestamps.popleft()
+            if len(timestamps) >= RATE_LIMIT_PER_MIN:
+                raise HTTPException(status_code=429, detail="Too many requests")
+            timestamps.append(now)
 
-    response = await call_next(request)
+            # Token auth (Bearer or raw token)
+            if API_TOKEN:
+                auth_header = request.headers.get("authorization", "")
+                token = auth_header.replace("Bearer ", "").strip() if auth_header else ""
+                if token != API_TOKEN:
+                    raise HTTPException(status_code=401, detail="Unauthorized")
+
+        response = await call_next(request)
+    except HTTPException as exc:
+        latency = time.time() - start
+        response = JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+        response.headers["X-Request-ID"] = request_id
+        REQUEST_COUNT.labels(path=path, method=request.method, status=exc.status_code).inc()
+        REQUEST_LATENCY.labels(path=path, method=request.method).observe(latency)
+        log_json(
+            "request",
+            request_id=request_id,
+            path=path,
+            method=request.method,
+            status=exc.status_code,
+            latency_ms=round(latency * 1000, 2),
+            client_ip=client_ip,
+        )
+        return response
 
     latency = time.time() - start
-    path_template = request.scope.get("path", "")
     status = response.status_code
-    REQUEST_COUNT.labels(path=path_template, method=request.method, status=status).inc()
-    REQUEST_LATENCY.labels(path=path_template, method=request.method).observe(latency)
+    REQUEST_COUNT.labels(path=path, method=request.method, status=status).inc()
+    REQUEST_LATENCY.labels(path=path, method=request.method).observe(latency)
 
     response.headers["X-Request-ID"] = request_id
     log_json(
         "request",
         request_id=request_id,
-        path=path_template,
+        path=path,
         method=request.method,
         status=status,
         latency_ms=round(latency * 1000, 2),
@@ -141,6 +175,23 @@ def validate_payload_size(title: str, body: str):
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+
+@app.get("/favicon.ico")
+async def favicon():
+    # Serve a no-op favicon to avoid 404 noise in logs.
+    return Response(status_code=204)
+
+
+@app.get("/")
+async def root():
+    """
+    Landing endpoint to avoid 401 on bare / and point to docs/UI.
+    """
+    return {
+        "status": "ok",
+        "message": "Mongo → Chroma Vector API. See /docs for Swagger or /ui for the console.",
+    }
 
 
 @app.get("/readyz")

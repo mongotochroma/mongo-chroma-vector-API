@@ -1,7 +1,7 @@
 import json
 import random
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -131,7 +131,7 @@ def _to_payload(doc) -> dict:
 
 
 def run_polling_worker():
-    client = MongoClient(MONGO_URI)
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
     db = client[MONGO_DB]
     coll = db[MONGO_COLLECTION]
 
@@ -148,7 +148,16 @@ def run_polling_worker():
 
     while True:
         query = {"_id": {"$gt": last_seen_id}} if last_seen_id else {}
-        docs = list(coll.find(query).sort("_id", 1))
+        try:
+            docs = list(coll.find(query).sort("_id", 1))
+        except Exception as e:
+            _log("mongo_poll_error", error=str(e))
+            time.sleep(POLL_INTERVAL_SEC)
+            # Recreate client in case the socket was dropped
+            client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+            db = client[MONGO_DB]
+            coll = db[MONGO_COLLECTION]
+            continue
 
         if docs:
             for i in range(0, len(docs), WORKER_BATCH_SIZE):
@@ -187,7 +196,7 @@ def run_change_stream_worker():
 
 
 def _log(message: str, **kwargs):
-    record = {"msg": message, "ts": datetime.utcnow().isoformat(), **kwargs}
+    record = {"msg": message, "ts": datetime.now(timezone.utc).isoformat(), **kwargs}
     print(json.dumps(record))
 
 
