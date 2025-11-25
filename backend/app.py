@@ -1,11 +1,13 @@
 import json
 import time
 import uuid
+from pathlib import Path
 from collections import deque, defaultdict
 from typing import Deque, Dict, List, Optional
 
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from pymongo import MongoClient
 
@@ -36,6 +38,10 @@ app = FastAPI(
     version="1.0.0",
     description="Core vector service for syncing MongoDB documents into ChromaDB.",
 )
+
+STATIC_DIR = Path(__file__).resolve().parents[1] / "frontend"
+if STATIC_DIR.exists():
+    app.mount("/ui", StaticFiles(directory=STATIC_DIR, html=True), name="ui")
 
 # CORS allowlist (empty list → no CORS)
 app.add_middleware(

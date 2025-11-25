@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Mongo → Chroma API Console</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --panel: #1f2937;
+      --text: #e5e7eb;
+      --muted: #9ca3af;
+      --accent: #10b981;
+      --accent-2: #38bdf8;
+      --border: #1f2937;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Inter", system-ui, -apple-system, sans-serif;
+      background: radial-gradient(circle at 15% 20%, #111827, #0b1224 45%), radial-gradient(circle at 80% 10%, #0e1a33, #0b1224 40%), var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+    h1, h2, h3 { margin: 0 0 8px; }
+    p { margin: 0 0 12px; color: var(--muted); }
+    .grid {
+      display: grid;
+      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.35);
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    input, textarea, select {
+      width: 100%;
+      padding: 10px 12px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+      margin-bottom: 12px;
+    }
+    textarea { resize: vertical; min-height: 80px; }
+    button {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #0b1224;
+      border: none;
+      padding: 10px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform 0.1s ease, box-shadow 0.2s ease;
+    }
+    button:hover { transform: translateY(-1px); box-shadow: 0 8px 24px rgba(16,185,129,0.35); }
+    button:active { transform: translateY(0); }
+    .log {
+      background: #0b1020;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 160px;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 13px;
+      overflow: auto;
+      white-space: pre-wrap;
+      color: #cbd5f5;
+    }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .row > * { flex: 1; min-width: 140px; }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #14233c;
+      color: #8ab3ff;
+      font-size: 12px;
+      margin-right: 6px;
+    }
+  </style>
+</head>
+<body>
+  <header style="margin-bottom:16px;">
+    <div class="pill">Local UI</div>
+    <h1>Mongo → Chroma API Console</h1>
+    <p>Try ingest, search, and delete with live JSON requests and responses. Served at <code>/ui</code>.</p>
+  </header>
+
+  <section class="card" style="margin-bottom:16px;">
+    <h3>Connection</h3>
+    <div class="row">
+      <div>
+        <label>API Base URL</label>
+        <input id="apiBase" value="" placeholder="http://localhost:8000" />
+      </div>
+      <div>
+        <label>Auth Token (optional)</label>
+        <input id="apiToken" placeholder="Bearer token" />
+      </div>
+    </div>
+    <button onclick="setDefaults()">Use page origin</button>
+  </section>
+
+  <div class="grid">
+    <div class="card">
+      <h3>Ingest</h3>
+      <label>Mongo ID</label>
+      <input id="ingestId" placeholder="64f..." />
+      <label>Title</label>
+      <input id="ingestTitle" />
+      <label>Body</label>
+      <textarea id="ingestBody"></textarea>
+      <label>Tags (comma separated)</label>
+      <input id="ingestTags" placeholder="tag1, tag2" />
+      <button onclick="ingest()">Send /ingest</button>
+    </div>
+
+    <div class="card">
+      <h3>Search</h3>
+      <label>Query</label>
+      <input id="searchQuery" placeholder="vector search text" />
+      <label>Top K</label>
+      <input id="searchTopK" type="number" value="3" min="1" max="50" />
+      <button onclick="search()">Send /search</button>
+    </div>
+
+    <div class="card">
+      <h3>Delete</h3>
+      <label>Mongo ID</label>
+      <input id="deleteId" placeholder="64f..." />
+      <button onclick="deleteDoc()">Send /delete</button>
+    </div>
+  </div>
+
+  <section class="card" style="margin-top:16px;">
+    <h3>Request / Response</h3>
+    <div class="log" id="log"></div>
+  </section>
+
+  <script>
+    function setDefaults() {
+      const origin = window.location.origin;
+      document.getElementById("apiBase").value = origin;
+    }
+    setDefaults();
+
+    function log(message, obj) {
+      const logEl = document.getElementById("log");
+      const time = new Date().toISOString();
+      const body = obj ? "\\n" + JSON.stringify(obj, null, 2) : "";
+      logEl.textContent = `[${time}] ${message}${body}\\n\\n` + logEl.textContent;
+    }
+
+    function headers() {
+      const token = document.getElementById("apiToken").value.trim();
+      const h = { "Content-Type": "application/json" };
+      if (token) h["Authorization"] = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
+      return h;
+    }
+
+    async function callApi(path, payload) {
+      const base = document.getElementById("apiBase").value.trim() || window.location.origin;
+      const res = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: headers(),
+        body: JSON.stringify(payload),
+      });
+      const text = await res.text();
+      let data = null;
+      try { data = JSON.parse(text); } catch (_) { data = text; }
+      return { status: res.status, data };
+    }
+
+    async function ingest() {
+      const payload = {
+        mongo_id: document.getElementById("ingestId").value.trim(),
+        title: document.getElementById("ingestTitle").value,
+        body: document.getElementById("ingestBody").value,
+        tags: parseTags(document.getElementById("ingestTags").value),
+      };
+      log("POST /ingest → request", payload);
+      try {
+        const res = await callApi("/ingest", payload);
+        log(`POST /ingest → ${res.status}`, res.data);
+      } catch (e) {
+        log("POST /ingest error", { error: String(e) });
+      }
+    }
+
+    async function search() {
+      const payload = {
+        query: document.getElementById("searchQuery").value,
+        top_k: Number(document.getElementById("searchTopK").value || 3),
+      };
+      log("POST /search → request", payload);
+      try {
+        const res = await callApi("/search", payload);
+        log(`POST /search → ${res.status}`, res.data);
+      } catch (e) {
+        log("POST /search error", { error: String(e) });
+      }
+    }
+
+    async function deleteDoc() {
+      const payload = { mongo_id: document.getElementById("deleteId").value.trim() };
+      log("POST /delete → request", payload);
+      try {
+        const res = await callApi("/delete", payload);
+        log(`POST /delete → ${res.status}`, res.data);
+      } catch (e) {
+        log("POST /delete error", { error: String(e) });
+      }
+    }
+
+    function parseTags(val) {
+      if (!val) return [];
+      return val.split(",").map(t => t.trim()).filter(Boolean);
+    }
+  </script>
+</body>
+</html>

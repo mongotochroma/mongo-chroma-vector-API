@@ -125,6 +125,16 @@ docker-compose up --build
 
 Compose overrides `MONGO_URI`/`API_BASE` to use service names (`mongo`, `api`) and shares `chroma_store` via a named volume. Stop with `docker-compose down` (add `-v` to drop volumes).
 
+### Minimal API UI
+
+Run the API (locally or via Docker) and open:
+
+```
+http://localhost:8000/ui
+```
+
+Use the built-in console to send `/ingest`, `/search`, and `/delete` requests, set your `API_TOKEN`, and inspect responses inline.
+
 ## 🔒 Security (auth, CORS, rate limits, HTTPS)
 
 - **Auth token**: set `API_TOKEN` (Bearer) and include `Authorization: Bearer <token>` on all API calls.
