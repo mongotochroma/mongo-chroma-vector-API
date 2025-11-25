@@ -74,9 +74,10 @@ Copy `.env.example` → `.env`:
 cp .env.example .env
 ```
 
-Fill values such as:
+Fill values such as (defaults in example are for local dev):
 
 ```
+APP_ENV=development
 MONGO_URI=mongodb://localhost:27017
 MONGO_DB=realtime_demo
 MONGO_COLLECTION=articles
@@ -89,6 +90,8 @@ GEMINI_API_KEY=your_key_here
 GEMINI_MODEL=gemini-2.0-flash
 GEMINI_EMBED_MODEL=text-embedding-004
 ```
+
+For multiple environments, set `APP_ENV` (e.g., `production`, `staging`) and optionally create `.env.production` / `.env.staging` to override the base `.env`. Startup will fail fast if required environment variables are missing to avoid falling back to unsafe defaults.
 
 ---
 
